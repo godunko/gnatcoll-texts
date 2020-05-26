@@ -21,7 +21,7 @@
 --                                                                          --
 ------------------------------------------------------------------------------
 
-with Magic.Strings.UTF8;
+with Magic.Strings.Configuration;
 
 package body Magic.Strings.Conversions is
 
@@ -32,17 +32,29 @@ package body Magic.Strings.Conversions is
    function To_Magic_String
      (Item : Ada.Strings.UTF_Encoding.UTF_8_String) return Magic_String
    is
-      Segment : String_Access;
       Success : Boolean;
 
    begin
-      Magic.Strings.UTF8.From_UTF_8_String (Item, Segment, Success);
+      return Result : Magic_String do
+         --  First, attempt to place data in the storage inside the object of
+         --  Magic_String type.
 
-      if not Success then
-         raise Constraint_Error with "Ill-formed UTF-8 data";
-      end if;
+         Magic.Strings.Configuration.In_Place_Handler.From_UTF_8_String
+           (Item, Result.Data, Success);
 
-      return (Ada.Finalization.Controlled with Data => Segment, others => <>);
+         if not Success then
+            --  Operation may fail for two reasons: source data is not
+            --  well-formed UTF-8 or there is not enoght memory to store
+            --  string in in-place storage.
+
+            Magic.Strings.Configuration.Default_Handler.From_UTF_8_String
+              (Item, Result.Data, Success);
+         end if;
+
+         if not Success then
+            raise Constraint_Error with "Ill-formed UTF-8 data";
+         end if;
+      end return;
    end To_Magic_String;
 
    ---------------------
@@ -52,12 +64,16 @@ package body Magic.Strings.Conversions is
    function To_UTF_8_String
      (Item : Magic_String) return Ada.Strings.UTF_Encoding.UTF_8_String is
    begin
-      if Item.Data = null then
-         return "";
+      if Item.Data.In_Place then
+         return
+           Magic.Strings.Configuration.In_Place_Handler.To_UTF_8_String
+             (Item.Data);
 
-      else
-         return Item.Data.To_UTF_8_String;
+      elsif Item.Data.Handler /= null then
+         return Item.Data.Handler.To_UTF_8_String (Item.Data);
       end if;
+
+      return "";
    end To_UTF_8_String;
 
 end Magic.Strings.Conversions;

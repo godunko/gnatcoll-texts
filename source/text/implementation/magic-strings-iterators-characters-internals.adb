@@ -21,6 +21,8 @@
 --                                                                          --
 ------------------------------------------------------------------------------
 
+with Magic.Strings.Configuration;
+
 package body Magic.Strings.Iterators.Characters.Internals is
 
    ---------------------
@@ -34,8 +36,12 @@ package body Magic.Strings.Iterators.Characters.Internals is
       return Result : Magic.Strings.Iterators.Characters.Character_Iterator do
          Result.Connect (Self'Unrestricted_Access);
 
-         if Self.Data /= null then
-            Self.Data.First_Character (Result.Position);
+         if Self.Data.In_Place then
+            Magic.Strings.Configuration.In_Place_Handler.First_Character
+              (Self.Data, Result.Position);
+
+         elsif Self.Data.Handler /= null then
+            Self.Data.Handler.First_Character (Self.Data, Result.Position);
          end if;
       end return;
    end First_Character;

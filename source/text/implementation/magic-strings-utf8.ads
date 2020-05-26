@@ -23,8 +23,8 @@
 --  Generic implementation of the string which use UTF-8 encoding for data.
 
 with Ada.Strings.UTF_Encoding;
-
-with Magic.Strings.Reference_Counted;
+with Interfaces;
+with System.Atomic_Counters;
 
 private package Magic.Strings.UTF8 is
 
@@ -34,74 +34,132 @@ private package Magic.Strings.UTF8 is
      array (Magic.Unicode.UTF8_Code_Unit_Count range <>)
      of Magic.Unicode.UTF8_Code_Unit;
 
-   type UTF8_Segment (Capacity : Magic.Unicode.UTF8_Code_Unit_Count) is
-     new Magic.Strings.Reference_Counted.Abstract_Shared_String with record
-      Data   : UTF8_Code_Unit_Array (0 .. Capacity);
+   type UTF8_String_Data
+     (Capacity : Magic.Unicode.UTF8_Code_Unit_Count) is
+   record
+      Counter : System.Atomic_Counters.Atomic_Counter;
+
+      Storage : UTF8_Code_Unit_Array (0 .. Capacity);
       --  Buffer to store string's data. First unused code unit is set to
       --  zero, to allow to pass data to C.
 
-      Size   : Magic.Unicode.UTF8_Code_Unit_Count;
+      Size    : Magic.Unicode.UTF8_Code_Unit_Count;
       --  Number of code units in the buffer.
 
-      Length : Character_Count;
+      Length  : Character_Count;
       --  Length of the string in Unicode Code Points.
    end record;
 
-   procedure From_UTF_8_String
-     (Item    : Ada.Strings.UTF_Encoding.UTF_8_String;
-      Segment : out String_Access;
+   type UTF8_String_Data_Access is access all UTF8_String_Data;
+
+   type UTF8_String_Handler is
+     new Magic.Strings.Abstract_String_Handler with null record;
+
+   overriding procedure Reference
+     (Self : UTF8_String_Handler;
+      Data : in out String_Data);
+   --  Called when new copy of the string is created. It should update pointer
+   --  if necessary.
+
+   overriding procedure Unreference
+     (Self : UTF8_String_Handler;
+      Data : in out String_Data);
+   --  Called when some copy of the string is not longer needed. It should
+   --  release resources when necessary and reset Pointer to safe value.
+
+   overriding function Is_Empty
+     (Self : UTF8_String_Handler;
+      Data : String_Data) return Boolean;
+
+   overriding function Element
+     (Self     : UTF8_String_Handler;
+      Data     : String_Data;
+      Position : Magic.Strings.Cursor)
+      return Magic.Unicode.Code_Point;
+   --  Return character at given position or NUL if Position is not pointing
+   --  to any character.
+
+   overriding procedure First_Character
+     (Self     : UTF8_String_Handler;
+      Data     : String_Data;
+      Position : in out Magic.Strings.Cursor);
+   --  Initialize iterator to point to first character.
+
+   overriding function Forward
+     (Self     : UTF8_String_Handler;
+      Data     : String_Data;
+      Position : in out Cursor) return Boolean;
+   --  Move cursor one character forward. Return True on success.
+
+   overriding procedure From_UTF_8_String
+     (Self    : in out UTF8_String_Handler;
+      Item    : Ada.Strings.UTF_Encoding.UTF_8_String;
+      Data    : out String_Data;
       Success : out Boolean);
-   --  Converts standard UTF_S_String into internal representation. It checks
-   --  for validity and computes string length in code points. On any error
-   --  Success is set to False and Segment set to null.
+   --  Convert UTF_8_String into internal representation.
 
-   overriding function Is_Empty (Self : UTF8_Segment) return Boolean;
-   --  Return True when string is empty.
+   overriding function To_UTF_8_String
+     (Self : UTF8_String_Handler;
+      Data : String_Data)
+      return Ada.Strings.UTF_Encoding.UTF_8_String;
+   --  Converts string data into standard UTF_8_String.
 
-   overriding procedure First_Character
-     (Self     : UTF8_Segment;
-      Position : in out Cursor);
-   --  Initialize iterator to point to first character of the string
+   type UTF8_In_Place_Data is record
+      Storage : UTF8_Code_Unit_Array (0 .. 17);
+      Size    : Interfaces.Unsigned_8;
+      Length  : Interfaces.Unsigned_8;
+   end record;
+
+   type UTF8_In_Place_String_Handler is
+     new Magic.Strings.Abstract_String_Handler with null record;
+
+   overriding procedure Reference
+     (Self : UTF8_In_Place_String_Handler;
+      Data : in out String_Data) is null;
+   --  Called when new copy of the string is created. It should update pointer
+   --  if necessary.
+
+   overriding procedure Unreference
+     (Self : UTF8_In_Place_String_Handler;
+      Data : in out String_Data) is null;
+   --  Called when some copy of the string is not longer needed. It should
+   --  release resources when necessary and reset Pointer to safe value.
+
+   overriding function Is_Empty
+     (Self : UTF8_In_Place_String_Handler;
+      Data : String_Data) return Boolean;
 
    overriding function Element
-     (Self     : UTF8_Segment;
-      Position : Cursor) return Magic.Unicode.Code_Point;
+     (Self     : UTF8_In_Place_String_Handler;
+      Data     : String_Data;
+      Position : Magic.Strings.Cursor)
+      return Magic.Unicode.Code_Point;
+   --  Return character at given position or NUL if Position is not pointing
+   --  to any character.
+
+   overriding procedure First_Character
+     (Self     : UTF8_In_Place_String_Handler;
+      Data     : String_Data;
+      Position : in out Magic.Strings.Cursor);
+   --  Initialize iterator to point to first character.
 
    overriding function Forward
-     (Self     : UTF8_Segment;
+     (Self     : UTF8_In_Place_String_Handler;
+      Data     : String_Data;
       Position : in out Cursor) return Boolean;
    --  Move cursor one character forward. Return True on success.
 
-   overriding function To_Text (Self : in out UTF8_Segment) return String_Access;
-   --  Returns text view of the segment.
+   overriding procedure From_UTF_8_String
+     (Self    : in out UTF8_In_Place_String_Handler;
+      Item    : Ada.Strings.UTF_Encoding.UTF_8_String;
+      Data    : out String_Data;
+      Success : out Boolean);
+   --  Convert UTF_8_String into internal representation.
 
-   overriding function To_UTF_8_String (Self : UTF8_Segment) return String;
-   --  Returns internal data as standard String.
-
-   type UTF8_Text is
-     new Magic.Strings.Reference_Counted.Abstract_Shared_String with null record;
-
-   overriding function Is_Empty (Self : UTF8_Text) return Boolean;
-   --  Return True when string is empty.
-
-   overriding function Element
-     (Self     : UTF8_Text;
-      Position : Cursor) return Magic.Unicode.Code_Point;
-
-   overriding procedure First_Character
-     (Self     : UTF8_Text;
-      Position : in out Cursor);
-   --  Initialize iterator to point to first character of the string
-
-   overriding function Forward
-     (Self     : UTF8_Text;
-      Position : in out Cursor) return Boolean;
-   --  Move cursor one character forward. Return True on success.
-
-   overriding function To_Text (Self : in out UTF8_Text) return String_Access;
-   --  Returns itself.
-
-   overriding function To_UTF_8_String (Self : UTF8_Text) return String;
-   --  Returns internal data as standard String.
+   overriding function To_UTF_8_String
+     (Self : UTF8_In_Place_String_Handler;
+      Data : String_Data)
+      return Ada.Strings.UTF_Encoding.UTF_8_String;
+   --  Converts string data into standard UTF_8_String.
 
 end Magic.Strings.UTF8;

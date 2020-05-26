@@ -25,6 +25,7 @@
 private with Ada.Finalization;
 private with Ada.Strings.UTF_Encoding;
 private with Ada.Streams;
+private with System.Storage_Elements;
 
 with Magic.Characters;
 limited with Magic.Strings.Iterators.Characters;
@@ -36,10 +37,10 @@ package Magic.Strings is
    pragma Preelaborate;
    pragma Remote_Types;
 
-   type Character_Count is new Natural;
+   type Character_Count is range 0 .. 2 ** 30 - 1;
    subtype Character_Index is Character_Count range 1 .. Character_Count'Last;
 
-   type Grapheme_Count is new Natural;
+   type Grapheme_Count is range 0 .. 2 ** 30 - 1;
    subtype Grapheme_Index is Grapheme_Count range 1 .. Grapheme_Count'Last;
 
    type Magic_String is tagged private;
@@ -76,6 +77,10 @@ private
 
    type Magic_String_Access is access all Magic_String'Class;
 
+   type Abstract_String_Handler is tagged;
+
+   type String_Handler_Access is access all Abstract_String_Handler'Class;
+
    ------------
    -- Cursor --
    ------------
@@ -86,59 +91,97 @@ private
       UTF16_Offset : Magic.Unicode.UTF16_Code_Unit_Index := 0;
    end record;
 
-   ---------------------
-   -- Abstract_String --
-   ---------------------
+   -----------------
+   -- String_Data --
+   -----------------
 
-   --  Abstract_String is an internal representation of the data and common
-   --  set of operations to process data. It is designed to allow to use
-   --  impicit data sharing (also known as copy-on-write), while
-   --  implementations may avoid this if necessary.
+   --  String_Data is a pair or Handler and pointer to the associated data.
+   --  It is not defined how particular implementation of the String_Handler
+   --  use pointer.
+   --
+   --  However, there is one exception: when In_Place Flag is set it means
+   --  that special predefined handler is used to process Storage.
+   --
+   --  Note: data layout is optimized for x86-64 CPU.
+   --  Note: Storage has 4 bytes alignment.
 
-   type Abstract_String is abstract tagged limited null record;
+   type String_Data (In_Place : Boolean := False) is record
+      Capacity : Character_Count := 0;
 
-   type String_Access is access all Abstract_String'Class;
+      case In_Place is
+         when True =>
+            Storage : System.Storage_Elements.Storage_Array (0 .. 19);
 
-   function Reference
-     (Self : in out Abstract_String) return String_Access is abstract;
-   --  Called when new copy of the string is created. It can return parameter
-   --  or new allocted data object.
+         when False =>
+            Handler : String_Handler_Access;
+            Pointer : System.Address;
+      end case;
+   end record;
+   for String_Data use record
+      Storage  at 0  range  0 .. 159;
+      Handler  at 0  range  0 ..  63;
+      Pointer  at 8  range  0 ..  63;
+      Capacity at 20 range  0 ..  29;
+      In_Place at 20 range 31 ..  31;
+   end record;
 
-   procedure Unreference (Self : in out Abstract_String) is abstract;
-   --  Called when some copy of the string is not longer in use. It should
-   --  deallocate data when necessary.
+   -----------------------------
+   -- Abstract_String_Handler --
+   -----------------------------
 
-   function Is_Empty (Self : Abstract_String) return Boolean is abstract;
+   --  Abstract_String_Hanlder is abstract set of operations on string data.
+
+   type Abstract_String_Handler is abstract tagged limited null record;
+
+   not overriding procedure Reference
+     (Self : Abstract_String_Handler;
+      Data : in out String_Data) is abstract;
+   --  Called when new copy of the string is created. It should update pointer
+   --  if necessary.
+
+   not overriding procedure Unreference
+     (Self : Abstract_String_Handler;
+      Data : in out String_Data) is abstract;
+   --  Called when some copy of the string is not longer needed. It should
+   --  release resources when necessary and reset Pointer to safe value.
+
+   not overriding function Is_Empty
+     (Self : Abstract_String_Handler;
+      Data : String_Data) return Boolean is abstract;
    --  Return True when string is empty.
 
---  function Length (Self : Abstract_String) return Character_Count is abstract;
-   --  Return number of abstract characters in the string.
+   not overriding function Element
+     (Self     : Abstract_String_Handler;
+      Data     : String_Data;
+      Position : Magic.Strings.Cursor)
+      return Magic.Unicode.Code_Point is abstract;
+   --  Return character at given position or NUL if Position is not pointing
+   --  to any character.
 
-   procedure First_Character
-     (Self     : Abstract_String;
-      Position : in out Cursor) is abstract;
+   not overriding procedure First_Character
+     (Self     : Abstract_String_Handler;
+      Data     : String_Data;
+      Position : in out Magic.Strings.Cursor) is abstract;
    --  Initialize iterator to point to first character.
 
-   function Forward
-     (Self     : Abstract_String;
+   not overriding function Forward
+     (Self     : Abstract_String_Handler;
+      Data     : String_Data;
       Position : in out Cursor) return Boolean is abstract;
    --  Move cursor one character forward. Return True on success.
 
-   function Element
-     (Self     : Abstract_String;
-      Position : Cursor) return Magic.Unicode.Code_Point is abstract;
-   --  Return character at given position or NUL is position is not pointing
-   --  to any character.
+   not overriding procedure From_UTF_8_String
+     (Self    : in out Abstract_String_Handler;
+      Item    : Ada.Strings.UTF_Encoding.UTF_8_String;
+      Data    : out String_Data;
+      Success : out Boolean) is abstract;
+   --  Convert UTF_8_String into internal representation.
 
-   function To_UTF_8_String
-     (Self : Abstract_String)
+   not overriding function To_UTF_8_String
+     (Self : Abstract_String_Handler;
+      Data : String_Data)
       return Ada.Strings.UTF_Encoding.UTF_8_String is abstract;
    --  Converts string data into standard UTF_8_String.
-
-   function To_Text
-     (Self : in out Abstract_String) return String_Access is abstract;
-   --  Returns view that supports text operations. Returned value must be
-   --  unreferenced after use.
 
    --------------------------
    -- Referal_Limited_Base --
@@ -180,9 +223,9 @@ private
       Self   : Magic_String);
 
    type Magic_String is new Ada.Finalization.Controlled with record
-      Data : String_Access;
       Head : Referal_Limited_Access;
       Tail : Referal_Limited_Access;
+      Data : String_Data;
    end record
      with Read  => Read,
           Write => Write;
@@ -192,7 +235,7 @@ private
 
    Empty_Magic_String : constant Magic_String :=
      (Ada.Finalization.Controlled with
-        Data => null, Head => null, Tail => null);
+        Data => <>, Head => null, Tail => null);
 
    -----------------------
    -- Grapheme_Iterator --

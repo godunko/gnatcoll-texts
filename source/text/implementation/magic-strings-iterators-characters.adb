@@ -21,6 +21,8 @@
 --                                                                          --
 ------------------------------------------------------------------------------
 
+with Magic.Strings.Configuration;
+
 package body Magic.Strings.Iterators.Characters is
 
    -------------
@@ -31,14 +33,23 @@ package body Magic.Strings.Iterators.Characters is
      (Self : Character_Iterator'Class) return Magic.Characters.Magic_Character
    is
    begin
-      if Self.Owner /= null and then Self.Owner.Data /= null then
-         return
-           Magic.Characters.Magic_Character'Val
-             (Self.Owner.Data.Element (Self.Position));
+      if Self.Owner /= null then
+         if Self.Owner.Data.In_Place then
+            return
+              Magic.Characters.Magic_Character'Val
+                (Magic.Strings.Configuration.In_Place_Handler.Element
+                   (Self.Owner.Data, Self.Position));
 
-      else
-         return Magic.Characters.Magic_Character'Val (16#00_0000#);
+         elsif Self.Owner.Data.Handler /= null then
+            return
+              Magic.Characters.Magic_Character'Val
+                (Self.Owner.Data.Handler.Element
+                   (Self.Owner.Data, Self.Position));
+
+         end if;
       end if;
+
+      return Magic.Characters.Magic_Character'Val (16#00_0000#);
    end Element;
 
    -------------
@@ -48,12 +59,19 @@ package body Magic.Strings.Iterators.Characters is
    overriding function Forward
      (Self : in out Character_Iterator) return Boolean is
    begin
-      if Self.Owner /= null and then Self.Owner.Data /= null then
-         return Self.Owner.Data.Forward (Self.Position);
+      if Self.Owner /= null then
+         if Self.Owner.Data.In_Place then
+            return
+              Magic.Strings.Configuration.In_Place_Handler.Forward
+                (Self.Owner.Data, Self.Position);
 
-      else
-         return False;
+         elsif Self.Owner.Data.Handler /= null then
+            return
+              Self.Owner.Data.Handler.Forward (Self.Owner.Data, Self.Position);
+         end if;
       end if;
+
+      return False;
    end Forward;
 
 end Magic.Strings.Iterators.Characters;

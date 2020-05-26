@@ -20,50 +20,20 @@
 -- <http://www.gnu.org/licenses/>.                                          --
 --                                                                          --
 ------------------------------------------------------------------------------
---  Data type to use reference to "slice" of another string data.
 
-with Magic.Strings.Reference_Counted;
+with Magic.Strings.UTF8;
 
-private package Magic.Strings.Slices is
+private package Magic.Strings.Configuration is
 
-   type Slice_Shared_String is
-     new Magic.Strings.Reference_Counted.Abstract_Shared_String with private;
+   pragma Preelaborate;
 
-private
+   UTF8_String_Handler   : aliased Magic.Strings.UTF8.UTF8_String_Handler;
+   UTF8_In_Place_Handler :
+     aliased Magic.Strings.UTF8.UTF8_In_Place_String_Handler;
 
-   type Slice_Shared_String is
-     new Magic.Strings.Reference_Counted.Abstract_Shared_String with record
-      Data : String_Access;
-      From : Character_Index;
-      To   : Character_Count;
-   end record;
+   Default_Handler  : not null String_Handler_Access :=
+     UTF8_String_Handler'Access;
+   In_Place_Handler : not null String_Handler_Access :=
+     UTF8_In_Place_Handler'Access;
 
-   overriding procedure Finalize (Self : in out Slice_Shared_String);
-   --  Finalization of the shared slice segment, base buffer should be
-   --  unreferenced.
-
-   overriding procedure First_Character
-     (Self     : Slice_Shared_String;
-      Position : in out Cursor);
-   --  Initialize iterator to point to first character of the string
-
-   overriding function Element
-     (Self     : Slice_Shared_String;
-      Position : Cursor) return Magic.Unicode.Code_Point;
-
-   overriding function Forward
-     (Self     : Slice_Shared_String;
-      Position : in out Cursor) return Boolean;
-   --  Move cursor one character forward. Return True on success.
-
-   overriding function Is_Empty (Self : Slice_Shared_String) return Boolean;
-   --  Return True when string is empty.
-
-   overriding function To_Text
-     (Self : in out Slice_Shared_String) return String_Access;
-
-   overriding function To_UTF_8_String
-     (Self : Slice_Shared_String)
-      return Ada.Strings.UTF_Encoding.UTF_8_String;
-
-end Magic.Strings.Slices;
+end Magic.Strings.Configuration;

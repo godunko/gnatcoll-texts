@@ -21,6 +21,7 @@
 --                                                                          --
 ------------------------------------------------------------------------------
 
+with Magic.Strings.Configuration;
 with Magic.Strings.Iterators.Characters.Internals;
 with Magic.Strings.Texts;
 
@@ -31,15 +32,12 @@ package body Magic.Strings is
    ------------
 
    overriding procedure Adjust (Self : in out Magic_String) is
-      Aux : String_Access;
-
    begin
-      if Self.Data /= null then
-         Aux := Self.Data.Reference;
+      if Self.Data.In_Place then
+         Magic.Strings.Configuration.In_Place_Handler.Reference (Self.Data);
 
-         if Aux /= Self.Data then
-            Self.Data := Aux;
-         end if;
+      elsif Self.Data.Handler /= null then
+         Self.Data.Handler.Reference (Self.Data);
       end if;
    end Adjust;
 
@@ -109,9 +107,11 @@ package body Magic.Strings is
 
       --  Unreference shared data
 
-      if Self.Data /= null then
-         Self.Data.Unreference;
-         Self.Data := null;
+      if Self.Data.In_Place then
+         Magic.Strings.Configuration.In_Place_Handler.Unreference (Self.Data);
+
+      elsif Self.Data.Handler /= null then
+         Self.Data.Handler.Unreference (Self.Data);
       end if;
    end Finalize;
 
@@ -145,7 +145,11 @@ package body Magic.Strings is
 
    function Is_Empty (Self : Magic_String'Class) return Boolean is
    begin
-      return Self.Data = null or else Self.Data.Is_Empty;
+      return
+        (if Self.Data.In_Place
+         then Magic.Strings.Configuration.In_Place_Handler.Is_Empty (Self.Data)
+         else Self.Data.Handler = null
+           or else Self.Data.Handler.Is_Empty (Self.Data));
    end Is_Empty;
 
    -------------
@@ -154,7 +158,11 @@ package body Magic.Strings is
 
    function Is_Null (Self : Magic_String'Class) return Boolean is
    begin
-      return Self.Data = null;
+      return
+        (if Self.Data.In_Place
+         then raise Program_Error
+         else Self.Data.Handler = null);
+      --  return Self.Data = null;
    end Is_Null;
 
    ----------
@@ -176,9 +184,10 @@ package body Magic.Strings is
      (Self : Magic_String) return Magic.Strings.Texts.Magic_Text is
    begin
       return (Ada.Finalization.Controlled with
-                Data => (if Self.Data = null
-                         then null
-                         else Self.Data.To_Text),
+                Data => <>,
+                --  Data => (if Self.Data = null
+                --           then null
+                --           else Self.Data.To_Text),
                 Head => null,
                 Tail => null);
    end To_Magic_Text;
